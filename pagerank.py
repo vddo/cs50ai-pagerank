@@ -2,7 +2,6 @@ import os
 import random
 import re
 import sys
-from pomegranate import *
 
 
 DAMPING = 0.85
@@ -13,17 +12,14 @@ def main():
     if len(sys.argv) != 2:
         sys.exit("Usage: python pagerank.py corpus")
     corpus = crawl(sys.argv[1])
-    # ranks = sample_pagerank(corpus, DAMPING, SAMPLES)
-    # print(f"PageRank Results from Sampling (n = {SAMPLES})")
-    # for page in sorted(ranks):
-    #     print(f"  {page}: {ranks[page]:.4f}")
-    # ranks = iterate_pagerank(corpus, DAMPING)
-    # print(f"PageRank Results from Iteration")
-    # for page in sorted(ranks):
-    #     print(f"  {page}: {ranks[page]:.4f}")
-    # Prints output of function crawl
-    print({sys.argv[1]})
-    print(corpus)
+    ranks = sample_pagerank(corpus, DAMPING, SAMPLES)
+    print(f"PageRank Results from Sampling (n = {SAMPLES})")
+    for page in sorted(ranks):
+        print(f"  {page}: {ranks[page]:.4f}")
+    ranks = iterate_pagerank(corpus, DAMPING)
+    print(f"PageRank Results from Iteration")
+    for page in sorted(ranks):
+        print(f"  {page}: {ranks[page]:.4f}")
 
 
 def crawl(directory):
@@ -49,7 +45,7 @@ def crawl(directory):
             link for link in pages[filename]
             if link in pages
         )
-    # print(pages)
+
     return pages
 
 
@@ -62,25 +58,27 @@ def transition_model(corpus, page, damping_factor):
     linked to by `page`. With probability `1 - damping_factor`, choose
     a link at random chosen from all pages in the corpus.
     """
-    # Constant variables
+    # Define variables
     count_pages = len(corpus)
     count_links = len(corpus[page])
 
     # Create empty dict for transition model
     dict_tm = dict()
 
-    # Loop over corpus' keys
+    # Loop over corpus keys
     for page_i in corpus:
-        # If page has no outgoing links then chose any page with equal probab
+        # If page has no outgoing links then chose any page with equal
+        # probability
         if count_links == 0:
             p_i = 1 / count_pages
         else:
-            # If page_i is a link in page then probability is a sum
+            # If page_i is a link in page then probability is sum of two parts
             if page_i in corpus[page]:
                 p_i = 1 / count_links * damping_factor + \
                     1 / count_pages * (1 - damping_factor)
             else:
                 p_i = 1 / count_pages * (1 - damping_factor)
+        # Add page with probability
         dict_tm[page_i] = p_i
     return dict_tm
 
@@ -94,42 +92,63 @@ def sample_pagerank(corpus, damping_factor, n):
     their estimated PageRank value (a value between 0 and 1). All
     PageRank values should sum to 1.
     """
-    # Define some constants
+    # Define variables
     count_pages = len(corpus)
     random_surfer_chain = list()
-    pagerank_sample = dict()
-    n_bak = n
+    pagerank_sample = dict()        # Final dict to return
+    n_bak = n                       # Original amount sample; needed for PR
 
-    # First Sample; chose randomly from every page
+    # First Sample; chose randomly/evenly from every page
     p_0 = 1 / count_pages
     distribution_0 = dict()
 
     for page_i in corpus:
         distribution_0[page_i] = p_0
 
-    # Generate discrete distribution for randomly picking from all pages
-    d0 = DiscreteDistribution(distribution_0)
+    # Preping distribution values
+    counts = list(distribution_0.values())
+    for i in counts:
+        a = counts.pop(0)
+        counts.append(int(a*10000))
 
-    # Chose first sample randomly with MarkovChain
-    model_0 = MarkovChain([d0])
-    # print(model_0.sample(1))
-    random_surfer_chain.append(model_0.sample(1)[0])
+    # Randomly chosing one sample with distribution_0
+    sample0 = random.sample(list(distribution_0),
+                            counts=counts, k=1)
+
+    # Append somple to chain
+    random_surfer_chain.append(sample0[0])
 
     # Refresh sample count
     n -= 1
-    #
+    # Loop n times; last sample new distribution
     while n > 0:
-        distribution_i = DiscreteDistribution(transition_model(
-            corpus, random_surfer_chain[-1], damping_factor))
-        model_i = MarkovChain([distribution_i])
-        random_surfer_chain.append(model_i.sample(1)[0])
+        # call transition model for new distribution i;
+        # page is latest sample from chain;
+        distribution_i = transition_model(
+            corpus, random_surfer_chain[-1], damping_factor)
+        # Preping distribution values
+        counts = list(distribution_i.values())
+        for i in counts:
+            a = counts.pop(0)
+            counts.append(int(a*10000))
+        # Take one sample from latest distribution and append to chain
+        random_surfer_chain.append(random.sample(
+            list(distribution_i), counts=counts, k=1)[0])
+        # Refresh counter
         n -= 1
 
-    # Count page appearences
+    # Count page appearances and calculate page rank
     for page_i in corpus:
         pagerank_sample[page_i] = random_surfer_chain.count(page_i) / n_bak
 
     return pagerank_sample
+
+
+# Deep copy new dict to old to calculate delta
+def copy_dict_PR_iterate(current, backup):
+    backup.clear()
+    for key_i in current:
+        backup[key_i] = current[key_i]
 
 
 def iterate_pagerank(corpus, damping_factor):
@@ -141,7 +160,58 @@ def iterate_pagerank(corpus, damping_factor):
     their estimated PageRank value (a value between 0 and 1). All
     PageRank values should sum to 1.
     """
-    raise NotImplementedError
+    # Define variables
+    N = len(corpus)
+    pagerank_iterate = dict()       # Later be returned
+    pagerank_iterate_0 = dict()
+
+    # Assigning each page same initial PR
+    for page_i in corpus:
+        pagerank_iterate[page_i] = 1 / N
+
+    # Iteration
+    # delta threshold arbitrary value > 0 (int)
+    loop_th = 100
+    # p-loop
+    while loop_th > 0:
+        copy_dict_PR_iterate(current=pagerank_iterate,
+                             backup=pagerank_iterate_0)
+        for p in corpus:
+            # Sum over linking pages; initial 0
+            PR_pi = 0
+            # i-loop
+            for i in corpus:
+                # Current PR of page i
+                PR_i = pagerank_iterate_0[i]
+                # Discarding same page; otherwise self linking possible
+                if i is not p:
+                    # If page without any link at all
+                    if len(corpus[i]) == 0:
+                        PR_pi += PR_i / N
+                    # If page i is linking to p
+                    elif p in corpus[i]:
+                        N_i = len(corpus[i])
+                        PR_pi += PR_i / N_i
+                    # Close i-loop
+            # Calculate page rank for p with equation from course
+            PR_p = (1 - damping_factor) / N + damping_factor * PR_pi
+            pagerank_iterate[p] = PR_p
+        # Compare to previous
+        pr1 = list(pagerank_iterate.values())
+        pr0 = list(pagerank_iterate_0.values())
+        # Set to fulfill while-condition
+        loop_th = 0
+        delta_list = list()
+        # Extract delta values
+        for i in range(len(pr1)):
+            delta_list.append(abs(pr1[i] - pr0[i]))
+        # Check delta 0.001
+        for delta in delta_list:
+            print(delta)
+            if delta > 0.001:
+                loop_th += 100
+
+    return pagerank_iterate
 
 
 if __name__ == "__main__":
